@@ -8,7 +8,7 @@ from catboost import CatBoostRegressor
 import warnings
 warnings.filterwarnings('ignore')
 
-st.set_page_config(page_title="Система предсказания продаж", layout="wide")
+st.set_page_config(page_title="Система передбачення продажів", layout="wide")
 
 def load_and_validate_data(uploaded_file):
     try:
