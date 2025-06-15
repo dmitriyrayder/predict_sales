@@ -301,7 +301,7 @@ def plot_monthly_revenue_by_segment(df, selected_magazin, selected_segment):
     return fig
 
 # Основное приложение
-st.title("🏪 Система предсказания продаж")
+st.title("🏪 Система передбачення продажів")
 uploaded_file = st.file_uploader("Загрузите Excel файл", type=['xlsx', 'xls'])
 
 if uploaded_file:
