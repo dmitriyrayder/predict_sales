@@ -8,31 +8,10 @@ from catboost import CatBoostRegressor
 import warnings
 warnings.filterwarnings('ignore')
 
+# Конфигурация страницы со стандартным белым фоном
 st.set_page_config(page_title="Система передбачення продажів", layout="wide")
 
-# --- Стили и фон ---
-def set_background():
-    """ Устанавливает градиентный фон для страницы. """
-    page_bg_img = '''
-    <style>
-    .stApp {
-        background-image: linear-gradient(to right top, #6d327c, #485da6, #0087cb, #00abdd, #12c5e0);
-        background-size: cover;
-    }
-    /* Сделаем текст на белых элементах более читаемым */
-    .st-emotion-cache-16txtl3 {
-        padding: 2rem 2rem;
-    }
-    h1, h2, h3, .st-emotion-cache-10trblm {
-        color: #FFFFFF; /* Белый цвет для заголовков и текста */
-    }
-    </style>
-    '''
-    st.markdown(page_bg_img, unsafe_allow_html=True)
-
-# Вызываем функцию для установки фона
-set_background()
-
+# Функция для фона была удалена, чтобы использовать стандартный белый фон Streamlit
 
 def load_and_validate_data(uploaded_file):
     try:
@@ -253,45 +232,45 @@ def generate_insights_for_magazin(df, forecast_data, model_type, selected_magazi
         insights.append("📊 **МОНИТОРИНГ**: Продолжайте отслеживать показетели для выявления трендов.")
     return insights, problems
 
-# --- ОБНОВЛЕННАЯ ФУНКЦИЯ ГРАФИКА ---
+# --- ОБНОВЛЕННАЯ ФУНКЦИЯ ГРАФИКА В СПОКОЙНЫХ ТОНАХ ---
 def plot_forecast(df, forecast, model_type, title):
-    """ Строит красивый и информативный график прогноза. """
+    """ Строит красивый и информативный график прогноза в спокойных тонах. """
     fig = go.Figure()
 
-    # Фактические данные (синий цвет, с маркерами)
+    # Фактические данные (спокойный синий)
     fig.add_trace(go.Scatter(
         x=df['ds'], y=df['y'],
         mode='lines+markers',
         name='Фактические данные',
-        line=dict(color='#007bff', width=2),
-        marker=dict(size=4, color='#007bff')
+        line=dict(color='#636EFA', width=2),
+        marker=dict(size=4)
     ))
 
-    # Прогноз (оранжевый цвет, пунктирная линия)
+    # Прогноз (мятно-зеленый)
     fig.add_trace(go.Scatter(
         x=forecast['ds'], y=forecast['yhat'],
         mode='lines',
         name='Прогноз',
-        line=dict(color='#ff7f0e', width=3, dash='dash')
+        line=dict(color='#00CC96', width=3, dash='dash')
     ))
 
-    # Доверительный интервал для Prophet (полупрозрачная оранжевая заливка)
+    # Доверительный интервал (полупрозрачный мятный)
     if model_type == 'Prophet' and 'yhat_lower' in forecast.columns:
         fig.add_trace(go.Scatter(
             x=forecast['ds'], y=forecast['yhat_upper'],
             fill=None, mode='lines',
-            line_color='rgba(255, 127, 14, 0.2)',
+            line_color='rgba(0, 204, 150, 0.2)',
             showlegend=False
         ))
         fig.add_trace(go.Scatter(
             x=forecast['ds'], y=forecast['yhat_lower'],
             fill='tonexty', mode='lines',
-            fillcolor='rgba(255, 127, 14, 0.2)',
-            line_color='rgba(255, 127, 14, 0.2)',
+            fillcolor='rgba(0, 204, 150, 0.2)',
+            line_color='rgba(0, 204, 150, 0.2)',
             name='Доверительный интервал'
         ))
 
-    # Настройка внешнего вида графика
+    # Настройка внешнего вида графика для белого фона
     fig.update_layout(
         title={
             'text': title,
@@ -299,7 +278,7 @@ def plot_forecast(df, forecast, model_type, title):
             'x':0.5,
             'xanchor': 'center',
             'yanchor': 'top',
-            'font': {'color': 'white', 'size': 24}
+            'font': {'color': '#333333', 'size': 24} # Темный заголовок
         },
         xaxis_title='Дата',
         yaxis_title='Количество продаж',
@@ -311,35 +290,50 @@ def plot_forecast(df, forecast, model_type, title):
             xanchor="right",
             x=1
         ),
-        plot_bgcolor='rgba(0,0,0,0)',  # Прозрачный фон графика
-        paper_bgcolor='rgba(0,0,0,0)', # Прозрачный фон всей области
-        font=dict(color='white') # Белый цвет текста на осях
+        font=dict(color='#333333') # Темный цвет текста на осях
     )
     return fig
 
 def plot_prophet_components(model, forecast):
     from prophet.plot import plot_components_plotly
     fig = plot_components_plotly(model, forecast)
+    # Можно дополнительно настроить цвета компонентов, если потребуется
     return fig
 
+# --- ОБНОВЛЕННАЯ ФУНКЦИЯ СЕЗОННОСТИ В СПОКОЙНЫХ ТОНАХ ---
 def plot_prophet_seasonality(forecast):
+    """Создает график сезонности Prophet в спокойных тонах."""
     fig = go.Figure()
+
+    # Недельная сезонность (приглушенный синий)
     if 'weekly' in forecast.columns:
         fig.add_trace(go.Scatter(
-            x=forecast['ds'], y=forecast['weekly'], mode='lines',
-            name='Недельная сезонность', line=dict(color='green')
+            x=forecast['ds'],
+            y=forecast['weekly'],
+            mode='lines',
+            name='Недельная сезонность',
+            line=dict(color='#83B3D3')
         ))
+
+    # Годовая сезонность (светло-розовый)
     if 'yearly' in forecast.columns:
         fig.add_trace(go.Scatter(
-            x=forecast['ds'], y=forecast['yearly'], mode='lines',
-            name='Годовая сезонность', line=dict(color='orange')
+            x=forecast['ds'],
+            y=forecast['yearly'],
+            mode='lines',
+            name='Годовая сезонность',
+            line=dict(color='#FFB6C1')
         ))
+
     fig.update_layout(
         title='Компоненты сезонности Prophet',
-        xaxis_title='Дата', yaxis_title='Влияние', hovermode='x unified'
+        xaxis_title='Дата',
+        yaxis_title='Влияние',
+        hovermode='x unified'
     )
     return fig
 
+# --- ОБНОВЛЕННАЯ ФУНКЦИЯ ГРАФИКА ПО МЕСЯЦАМ В ПАСТЕЛЬНЫХ ТОНАХ ---
 def plot_monthly_revenue_by_segment(df, selected_magazin, selected_segment):
     filtered_df = df.copy()
     if selected_magazin != 'Все':
@@ -351,14 +345,17 @@ def plot_monthly_revenue_by_segment(df, selected_magazin, selected_segment):
     monthly_revenue = filtered_df.groupby('year_month')['Sum'].sum().reset_index()
     monthly_revenue['year_month'] = monthly_revenue['year_month'].astype(str)
 
+    # Используем пастельную палитру
     fig = px.bar(monthly_revenue, x='year_month', y='Sum',
                 title=f'Продажи в деньгах по месяцам - {selected_segment}',
                 labels={'year_month': 'Месяц', 'Sum': 'Выручка (ГРН.)'},
-                text='Sum')
+                text='Sum',
+                color_discrete_sequence=px.colors.qualitative.Pastel)
 
     fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
     fig.update_layout(xaxis_title='Месяц', yaxis_title='Выручка (ГРН.)', hovermode='x unified')
     return fig
+
 
 # --- Основное приложение ---
 st.title("🏪 Система передбачення продажів")
