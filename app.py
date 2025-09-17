@@ -10,6 +10,30 @@ warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="Система передбачення продажів", layout="wide")
 
+# --- Стили и фон ---
+def set_background():
+    """ Устанавливает градиентный фон для страницы. """
+    page_bg_img = '''
+    <style>
+    .stApp {
+        background-image: linear-gradient(to right top, #6d327c, #485da6, #0087cb, #00abdd, #12c5e0);
+        background-size: cover;
+    }
+    /* Сделаем текст на белых элементах более читаемым */
+    .st-emotion-cache-16txtl3 {
+        padding: 2rem 2rem;
+    }
+    h1, h2, h3, .st-emotion-cache-10trblm {
+        color: #FFFFFF; /* Белый цвет для заголовков и текста */
+    }
+    </style>
+    '''
+    st.markdown(page_bg_img, unsafe_allow_html=True)
+
+# Вызываем функцию для установки фона
+set_background()
+
+
 def load_and_validate_data(uploaded_file):
     try:
         df = pd.read_excel(uploaded_file)
@@ -84,7 +108,7 @@ def train_catboost_model(data, periods=30):
     if len(clean_data) < 30:
         raise ValueError("Недостаточно данных для обучения CatBoost")
     X, y = clean_data[feature_cols], clean_data['Qty']
-    model = CatBoostRegressor(iterations=500, learning_rate=0.1, depth=6, 
+    model = CatBoostRegressor(iterations=500, learning_rate=0.1, depth=6,
                              loss_function='RMSE', random_seed=42, verbose=False)
     model.fit(X, y)
     last_date = data['Datasales'].iloc[-1]
@@ -151,20 +175,18 @@ def get_top_models_by_segment(df, selected_magazin):
 def show_forecast_statistics(filtered_df, forecast, forecast_days, selected_magazin, selected_segment, model_type, df):
     st.subheader("📊 Статистика прогноза")
     historical_data = filtered_df.groupby('Datasales')['Qty'].sum().reset_index()
-    
-    # Правильный расчет исторических данных за аналогичный период
+
     if len(historical_data) >= forecast_days:
         hist_qty = historical_data.tail(forecast_days)['Qty'].sum()
         period_start = historical_data.tail(forecast_days)['Datasales'].min().date()
         period_end = historical_data.tail(forecast_days)['Datasales'].max().date()
     else:
-        # Если данных меньше периода прогноза, берем среднее за день и экстраполируем
         daily_avg = historical_data['Qty'].mean() if len(historical_data) > 0 else 0
         hist_qty = daily_avg * forecast_days
         period_start = historical_data['Datasales'].min().date() if len(historical_data) > 0 else "N/A"
         period_end = historical_data['Datasales'].max().date() if len(historical_data) > 0 else "N/A"
 
-    avg_price = filtered_df['Price'].mean()
+    avg_price = filtered_df['Price'].mean() if not filtered_df.empty else 0
     hist_sum = hist_qty * avg_price
     segment_volatility = calculate_segment_volatility(df, selected_magazin, selected_segment)
     forecast_period = forecast.tail(forecast_days) if len(forecast) > forecast_days else forecast
@@ -178,25 +200,25 @@ def show_forecast_statistics(filtered_df, forecast, forecast_days, selected_maga
         qty_data = pd.DataFrame({
             'Сценарий': ['Исторический', 'Пессимистичный', 'Реальный', 'Оптимистичный'],
             'Количество': [int(hist_qty), int(pessimistic_qty), int(realistic_qty), int(optimistic_qty)],
-            'Изменение': ['-'] + [f"{((qty/hist_qty - 1) * 100):+.1f}%" if hist_qty > 0 else '-' 
+            'Изменение': ['-'] + [f"{((qty/hist_qty - 1) * 100):+.1f}%" if hist_qty > 0 else '-'
                                  for qty in [pessimistic_qty, realistic_qty, optimistic_qty]]
         })
         st.dataframe(qty_data, hide_index=True)
-    
+
     with col2:
         st.markdown("### 💰 Сумма (ГРН.)")
         sum_data = pd.DataFrame({
             'Сценарий': ['Исторический', 'Пессимистичный', 'Реальный', 'Оптимистичный'],
             'Сумма': [f"{hist_sum:,.0f}", f"{pessimistic_sum:,.0f}", f"{realistic_sum:,.0f}", f"{optimistic_sum:,.0f}"],
-            'Изменение': ['-'] + [f"{((sum_val/hist_sum - 1) * 100):+.1f}%" if hist_sum > 0 else '-' 
+            'Изменение': ['-'] + [f"{((sum_val/hist_sum - 1) * 100):+.1f}%" if hist_sum > 0 else '-'
                                  for sum_val in [pessimistic_sum, realistic_sum, optimistic_sum]]
         })
         st.dataframe(sum_data, hide_index=True)
-    
-    # Комментарий о периоде исторических данных
+
     st.info(f"📊 **Волатильность сегмента**: {segment_volatility:.1%}")
     st.info(f"📅 **Исторические данные за период**: {period_start} - {period_end} ({forecast_days} дней)")
     st.markdown(f"**Фильтры:** Магазин: {selected_magazin}, Сегмент: {selected_segment}, Период: {forecast_days} дней")
+
 
 def generate_insights_for_magazin(df, forecast_data, model_type, selected_magazin):
     insights = []
@@ -231,51 +253,90 @@ def generate_insights_for_magazin(df, forecast_data, model_type, selected_magazi
         insights.append("📊 **МОНИТОРИНГ**: Продолжайте отслеживать показетели для выявления трендов.")
     return insights, problems
 
+# --- ОБНОВЛЕННАЯ ФУНКЦИЯ ГРАФИКА ---
 def plot_forecast(df, forecast, model_type, title):
+    """ Строит красивый и информативный график прогноза. """
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df['ds'], y=df['y'], mode='lines+markers', name='Фактические данные', line=dict(color='blue')))
-    fig.add_trace(go.Scatter(x=forecast['ds'], y=forecast['yhat'], mode='lines', name='Прогноз', line=dict(color='red')))
+
+    # Фактические данные (синий цвет, с маркерами)
+    fig.add_trace(go.Scatter(
+        x=df['ds'], y=df['y'],
+        mode='lines+markers',
+        name='Фактические данные',
+        line=dict(color='#007bff', width=2),
+        marker=dict(size=4, color='#007bff')
+    ))
+
+    # Прогноз (оранжевый цвет, пунктирная линия)
+    fig.add_trace(go.Scatter(
+        x=forecast['ds'], y=forecast['yhat'],
+        mode='lines',
+        name='Прогноз',
+        line=dict(color='#ff7f0e', width=3, dash='dash')
+    ))
+
+    # Доверительный интервал для Prophet (полупрозрачная оранжевая заливка)
     if model_type == 'Prophet' and 'yhat_lower' in forecast.columns:
-        fig.add_trace(go.Scatter(x=forecast['ds'], y=forecast['yhat_upper'], fill=None, mode='lines', line_color='rgba(0,0,0,0)', showlegend=False))
-        fig.add_trace(go.Scatter(x=forecast['ds'], y=forecast['yhat_lower'], fill='tonexty', mode='lines', line_color='rgba(0,0,0,0)', name='Доверительный интервал'))
-    fig.update_layout(title=title, xaxis_title='Дата', yaxis_title='Количество', hovermode='x unified')
+        fig.add_trace(go.Scatter(
+            x=forecast['ds'], y=forecast['yhat_upper'],
+            fill=None, mode='lines',
+            line_color='rgba(255, 127, 14, 0.2)',
+            showlegend=False
+        ))
+        fig.add_trace(go.Scatter(
+            x=forecast['ds'], y=forecast['yhat_lower'],
+            fill='tonexty', mode='lines',
+            fillcolor='rgba(255, 127, 14, 0.2)',
+            line_color='rgba(255, 127, 14, 0.2)',
+            name='Доверительный интервал'
+        ))
+
+    # Настройка внешнего вида графика
+    fig.update_layout(
+        title={
+            'text': title,
+            'y':0.9,
+            'x':0.5,
+            'xanchor': 'center',
+            'yanchor': 'top',
+            'font': {'color': 'white', 'size': 24}
+        },
+        xaxis_title='Дата',
+        yaxis_title='Количество продаж',
+        hovermode='x unified',
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        plot_bgcolor='rgba(0,0,0,0)',  # Прозрачный фон графика
+        paper_bgcolor='rgba(0,0,0,0)', # Прозрачный фон всей области
+        font=dict(color='white') # Белый цвет текста на осях
+    )
     return fig
 
 def plot_prophet_components(model, forecast):
-    """Создает графики компонентов Prophet"""
     from prophet.plot import plot_components_plotly
     fig = plot_components_plotly(model, forecast)
     return fig
 
 def plot_prophet_seasonality(forecast):
-    """Создает график сезонности Prophet"""
     fig = go.Figure()
-    
-    # Недельная сезонность
     if 'weekly' in forecast.columns:
         fig.add_trace(go.Scatter(
-            x=forecast['ds'], 
-            y=forecast['weekly'], 
-            mode='lines', 
-            name='Недельная сезонность',
-            line=dict(color='green')
+            x=forecast['ds'], y=forecast['weekly'], mode='lines',
+            name='Недельная сезонность', line=dict(color='green')
         ))
-    
-    # Годовая сезонность
     if 'yearly' in forecast.columns:
         fig.add_trace(go.Scatter(
-            x=forecast['ds'], 
-            y=forecast['yearly'], 
-            mode='lines', 
-            name='Годовая сезонность',
-            line=dict(color='orange')
+            x=forecast['ds'], y=forecast['yearly'], mode='lines',
+            name='Годовая сезонность', line=dict(color='orange')
         ))
-    
     fig.update_layout(
-        title='Компонеты сезонности Prophet',
-        xaxis_title='Дата',
-        yaxis_title='Влияние',
-        hovermode='x unified'
+        title='Компоненты сезонности Prophet',
+        xaxis_title='Дата', yaxis_title='Влияние', hovermode='x unified'
     )
     return fig
 
@@ -285,22 +346,21 @@ def plot_monthly_revenue_by_segment(df, selected_magazin, selected_segment):
         filtered_df = filtered_df[filtered_df['Magazin'] == selected_magazin]
     if selected_segment != 'Все':
         filtered_df = filtered_df[filtered_df['Segment'] == selected_segment]
-    
+
     filtered_df['year_month'] = filtered_df['Datasales'].dt.to_period('M')
     monthly_revenue = filtered_df.groupby('year_month')['Sum'].sum().reset_index()
     monthly_revenue['year_month'] = monthly_revenue['year_month'].astype(str)
-    
-    fig = px.bar(monthly_revenue, x='year_month', y='Sum', 
+
+    fig = px.bar(monthly_revenue, x='year_month', y='Sum',
                 title=f'Продажи в деньгах по месяцам - {selected_segment}',
                 labels={'year_month': 'Месяц', 'Sum': 'Выручка (ГРН.)'},
                 text='Sum')
-    
-    # Форматирование подписей с суммами
+
     fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
     fig.update_layout(xaxis_title='Месяц', yaxis_title='Выручка (ГРН.)', hovermode='x unified')
     return fig
 
-# Основное приложение
+# --- Основное приложение ---
 st.title("🏪 Система передбачення продажів")
 uploaded_file = st.file_uploader("Загрузите Excel файл", type=['xlsx', 'xls'])
 
@@ -317,14 +377,14 @@ if uploaded_file:
             model_type = st.selectbox("Модель прогнозирования", ['Prophet', 'CatBoost'])
         with col4:
             forecast_days = st.selectbox("Период прогноза", [7, 14, 30])
-        
+
         if st.button("🔮 Показать прогноз", type="primary"):
             filtered_df = df.copy()
             if selected_magazin != 'Все':
                 filtered_df = filtered_df[filtered_df['Magazin'] == selected_magazin]
             if selected_segment != 'Все':
                 filtered_df = filtered_df[filtered_df['Segment'] == selected_segment]
-            
+
             if len(filtered_df) < 10:
                 st.error("Недостаточно данных для прогнозирования (минимум 10 записей)")
             else:
@@ -334,44 +394,38 @@ if uploaded_file:
                             prophet_data = prepare_prophet_data(filtered_df)
                             model, forecast = train_prophet_model(prophet_data, periods=forecast_days)
                         else:
-                            catboost_data = prepare_catboost_data(filtered_df) 
+                            catboost_data = prepare_catboost_data(filtered_df)
                             model, forecast = train_catboost_model(catboost_data, periods=forecast_days)
                             prophet_data = prepare_prophet_data(filtered_df)
                     except Exception as e:
                         st.error(f"Ошибка обучения модели: {e}")
                         st.stop()
-                
+
                 show_forecast_statistics(filtered_df, forecast, forecast_days, selected_magazin, selected_segment, model_type, df)
-                
+
                 st.subheader("📈 Результаты модели")
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric("Модель", model_type)
                 with col2:
                     st.metric("Тип модели", "Машинное обучение" if model_type == 'CatBoost' else "Временные ряды")
-                
+
                 st.subheader("📊 Прогноз продаж")
                 fig = plot_forecast(prophet_data, forecast, model_type, f"Прогноз продаж - {model_type}")
                 st.plotly_chart(fig, use_container_width=True)
-                
+
                 st.subheader("🔍 Анализ модели")
                 if model_type == 'Prophet':
-                    # Компоненты Prophet
                     fig_components = plot_prophet_components(model, forecast)
                     st.plotly_chart(fig_components, use_container_width=True)
-                    
-                    # Сезонность Prophet
                     fig_seasonality = plot_prophet_seasonality(forecast)
                     st.plotly_chart(fig_seasonality, use_container_width=True)
-                    
-                    # Тренд
                     fig_trend = px.line(forecast, x='ds', y='trend', title='Тренд продаж')
                     st.plotly_chart(fig_trend, use_container_width=True)
-                
-                # График продаж в деньгах по месяцам
+
                 fig_monthly = plot_monthly_revenue_by_segment(df, selected_magazin, selected_segment)
                 st.plotly_chart(fig_monthly, use_container_width=True)
-                
+
                 st.subheader("🏆 Топ-10 моделей по сегментам")
                 segments_top_models = get_top_models_by_segment(df, selected_magazin)
                 for segment, top_models in segments_top_models.items():
@@ -383,7 +437,7 @@ if uploaded_file:
                                 }), hide_index=True)
                         else:
                             st.info("Нет данных для этого сегмента")
-                
+
                 st.subheader("💡 Рекомендации для магазина")
                 magazin_name = selected_magazin if selected_magazin != 'Все' else 'всех магазинов'
                 st.markdown(f"**Анализ для: {magazin_name}**")
@@ -395,7 +449,7 @@ if uploaded_file:
                 st.markdown("### 📋 Рекомендации:")
                 for insight in insights:
                     st.markdown(insight)
-                
+
                 st.subheader("📋 Детальный прогноз по дням")
                 forecast_display = forecast.tail(forecast_days).copy()
                 segment_volatility = calculate_segment_volatility(df, selected_magazin, selected_segment)
@@ -414,7 +468,7 @@ else:
     st.markdown("""
     **Обов'язкові колонки:**
     - `Magazin` - назва магазину
-    - `Datasales` - дата продажу  
+    - `Datasales` - дата продажу
     - `Art` - артикул товару
     - `Describe` - опис товару
     - `Model` - модель товару
@@ -422,8 +476,8 @@ else:
     - `Price` - ціна
     - `Qty` - кількість
     - `Sum` - сума продажу
-    
+
     **Доступні модели:**
     - **Prophet** - статистична модель для аналізу часових рядів з автоматичним визначенням сезонності
-    - **ТЕСТОВА_МОДЕЛЬ**- модель машинного навчання для більш точного прогнозування з урахуванням множинних факторів
+    - **CatBoost** - модель машинного навчання для більш точного прогнозування з урахуванням множинних факторів
     """)
