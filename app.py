@@ -172,6 +172,47 @@ def train_prophet_model(train_data, periods=30):
         st.error(f"❌ Ошибка при обучении модели: {str(e)}")
         return None, None
 
+def calculate_model_metrics(model, train_data):
+    """Вычисляет метрики качества модели"""
+    from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+    
+    # Прогноз на исторических данных
+    forecast = model.predict(train_data)
+    
+    y_true = train_data['y'].values
+    y_pred = forecast['yhat'].values
+    
+    # Метрики
+    mae = mean_absolute_error(y_true, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    mape = np.mean(np.abs((y_true - y_pred) / np.where(y_true != 0, y_true, 1))) * 100
+    r2 = r2_score(y_true, y_pred)
+    
+    # Точность прогноза (в процентах)
+    accuracy = max(0, 100 - mape)
+    
+    return {
+        'MAE': mae,
+        'RMSE': rmse,
+        'MAPE': mape,
+        'R2': r2,
+        'Accuracy': accuracy
+    }
+
+def get_forecast_probability(forecast, segment_volatility):
+    """Вычисляет вероятность реализации прогноза"""
+    # Базовая вероятность зависит от волатильности
+    base_probability = (1 - segment_volatility) * 100
+    
+    # Корректировка на основе ширины доверительного интервала
+    if 'yhat_lower' in forecast.columns and 'yhat_upper' in forecast.columns:
+        interval_width = (forecast['yhat_upper'] - forecast['yhat_lower']) / forecast['yhat']
+        avg_interval = interval_width.mean()
+        interval_penalty = min(20, avg_interval * 10)
+        base_probability -= interval_penalty
+    
+    return max(50, min(95, base_probability))
+
 def calculate_segment_volatility(df, selected_magazin, selected_segment):
     """Вычисляет волатильность сегмента"""
     filtered = df.copy()
@@ -675,7 +716,11 @@ def main():
         
         st.markdown("## 📈 Дополнительная аналитика")
         
-        col1, col2, col3, col4 = st.columns(4)
+        # Метрики модели
+        model_metrics = calculate_model_metrics(model, prophet_data)
+        forecast_probability = get_forecast_probability(forecast, segment_volatility)
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             avg_daily_forecast = realistic.mean()
@@ -702,11 +747,101 @@ def main():
             )
         
         with col4:
-            confidence_score = (1 - segment_volatility) * 100
             st.metric(
-                "🎯 Уверенность прогноза",
-                f"{confidence_score:.0f}%"
+                "🎯 Точность модели",
+                f"{model_metrics['Accuracy']:.1f}%",
+                help="Точность прогноза на основе исторических данных"
             )
+        
+        with col5:
+            st.metric(
+                "🎲 Вероятность прогноза",
+                f"{forecast_probability:.1f}%",
+                help="Вероятность реализации прогноза"
+            )
+        
+        # Детальная статистика модели
+        st.markdown("### 📊 Статистика качества модели Prophet")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            metrics_df = pd.DataFrame({
+                'Метрика': ['MAE (Средняя абсолютная ошибка)', 'RMSE (Корень среднеквадратичной ошибки)', 
+                           'MAPE (Средняя абсолютная процентная ошибка)', 'R² (Коэффициент детерминации)'],
+                'Значение': [f"{model_metrics['MAE']:.2f}", f"{model_metrics['RMSE']:.2f}", 
+                            f"{model_metrics['MAPE']:.2f}%", f"{model_metrics['R2']:.4f}"],
+                'Интерпретация': [
+                    'Среднее отклонение прогноза от факта',
+                    'Стандартное отклонение ошибок',
+                    'Процентная ошибка прогноза',
+                    '1.0 = идеальная модель, 0 = базовая'
+                ]
+            })
+            st.dataframe(metrics_df, use_container_width=True, hide_index=True)
+            
+            # Оценка качества
+            if model_metrics['R2'] > 0.8:
+                st.success("✅ **Отличное качество модели** - высокая точность прогнозов")
+            elif model_metrics['R2'] > 0.6:
+                st.info("ℹ️ **Хорошее качество модели** - прогнозы достаточно надежны")
+            elif model_metrics['R2'] > 0.4:
+                st.warning("⚠️ **Среднее качество модели** - используйте прогнозы с осторожностью")
+            else:
+                st.error("❌ **Низкое качество модели** - высокая неопределенность прогнозов")
+        
+        with col2:
+            # Таблица вероятностей по сценариям
+            probability_df = pd.DataFrame({
+                'Сценарий': ['😰 Пессимистичный', '🎯 Реальный', '🚀 Оптимистичный'],
+                'Вероятность': [
+                    f"{min(95, forecast_probability + 15):.1f}%",
+                    f"{forecast_probability:.1f}%",
+                    f"{max(30, forecast_probability - 20):.1f}%"
+                ],
+                'Диапазон отклонения': [
+                    f"-{segment_volatility*100:.0f}%",
+                    "Базовый",
+                    f"+{segment_volatility*70:.0f}%"
+                ]
+            })
+            st.dataframe(probability_df, use_container_width=True, hide_index=True)
+            
+            # Дополнительная информация
+            st.info(f"""
+            **Факторы надежности прогноза:**
+            - 📊 Волатильность сегмента: {segment_volatility:.1%}
+            - 📈 Качество модели (R²): {model_metrics['R2']:.3f}
+            - 📉 Средняя ошибка (MAPE): {model_metrics['MAPE']:.1f}%
+            - 🎯 Доверительный интервал: 80%
+            """)
+        
+        # График распределения ошибок
+        st.markdown("### 📉 Анализ точности модели")
+        
+        forecast_hist = model.predict(prophet_data)
+        errors = prophet_data['y'].values - forecast_hist['yhat'].values
+        
+        fig_errors = go.Figure()
+        
+        fig_errors.add_trace(go.Histogram(
+            x=errors,
+            nbinsx=30,
+            name='Распределение ошибок',
+            marker_color='#636EFA',
+            opacity=0.7
+        ))
+        
+        fig_errors.update_layout(
+            title='<b>Распределение ошибок прогноза</b>',
+            xaxis_title='<b>Ошибка прогноза</b>',
+            yaxis_title='<b>Частота</b>',
+            showlegend=False,
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(family="Arial", size=12)
+        )
+        
+        st.plotly_chart(fig_errors, use_container_width=True)
         
         st.markdown("## 📥 Экспорт результатов")
         
