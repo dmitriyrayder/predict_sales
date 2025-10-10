@@ -5,4 +5,5 @@ plotly
 prophet
 catboost
 openpyxl
-sklearn. metrics
+sklearn
+
