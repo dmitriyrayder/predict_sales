@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Добавляем красивый CSS стиль
+# CSS стили
 st.markdown("""
 <style>
     .main-header {
@@ -53,32 +53,13 @@ st.markdown("""
         border-left: 4px solid #ff6b6b;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    
-    .stExpander {
-        border: 1px solid #e0e0e0;
-        border-radius: 10px;
-        margin: 0.5rem 0;
-    }
-    
-    .forecast-button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        padding: 0.75rem 2rem;
-        border-radius: 25px;
-        font-size: 1.1rem;
-        font-weight: bold;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-    }
 </style>
 """, unsafe_allow_html=True)
 
+@st.cache_data
 def load_and_validate_data(uploaded_file):
     """Загружает и валидирует данные из Excel файла"""
     try:
-        # Прогресс бар для загрузки
         progress_bar = st.progress(0)
         progress_bar.progress(25)
         
@@ -94,13 +75,9 @@ def load_and_validate_data(uploaded_file):
             
         progress_bar.progress(75)
         
-        # Конвертация дат с обработкой ошибок
         df['Datasales'] = pd.to_datetime(df['Datasales'], errors='coerce', dayfirst=True)
         df = df.dropna(subset=['Datasales']).sort_values('Datasales')
-        
-        # Удаление некорректных данных
-        df = df[df['Qty'] >= 0]  # Количество не может быть отрицательным
-        df = df[df['Price'] > 0]  # Цена должна быть положительной
+        df = df[(df['Qty'] >= 0) & (df['Price'] > 0)]
         
         progress_bar.progress(100)
         progress_bar.empty()
@@ -113,7 +90,7 @@ def load_and_validate_data(uploaded_file):
         return None
 
 def show_data_statistics(df):
-    """Отображает красивую статистику данных"""
+    """Отображает статистику данных"""
     st.markdown("## 📊 Статистика данных")
     
     col1, col2, col3, col4 = st.columns(4)
@@ -154,7 +131,6 @@ def show_data_statistics(df):
             unsafe_allow_html=True
         )
     
-    # Дополнительная статистика
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -171,7 +147,7 @@ def prepare_prophet_data(df, target_col='Qty'):
     return prophet_df
 
 def train_prophet_model(train_data, periods=30):
-    """Обучает модель Prophet с улучшенными параметрами"""
+    """Обучает модель Prophet"""
     try:
         model = Prophet(
             yearly_seasonality=True,
@@ -182,14 +158,6 @@ def train_prophet_model(train_data, periods=30):
             interval_width=0.8
         )
         
-        # Добавляем праздники (украинские)
-        holidays = pd.DataFrame({
-            'holiday': 'ukrainian_holidays',
-            'ds': pd.to_datetime(['2023-01-01', '2023-03-08', '2023-05-01', '2023-05-09', 
-                                 '2023-06-28', '2023-08-24', '2023-10-14', '2023-12-25']),
-            'lower_window': 0,
-            'upper_window': 1,
-        })
         model.add_country_holidays(country_name='UA')
         
         with st.spinner('🤖 Обучение модели Prophet...'):
@@ -233,10 +201,9 @@ def get_forecast_scenarios(forecast, segment_volatility=0.2):
     return realistic, optimistic, np.maximum(pessimistic, 0)
 
 def plot_forecast(df, forecast, title):
-    """Создает красивый интерактивный график прогноза"""
+    """Создает интерактивный график прогноза"""
     fig = go.Figure()
     
-    # Исторические данные
     fig.add_trace(go.Scatter(
         x=df['ds'], 
         y=df['y'],
@@ -247,7 +214,6 @@ def plot_forecast(df, forecast, title):
         hovertemplate='<b>Дата:</b> %{x}<br><b>Продажи:</b> %{y}<extra></extra>'
     ))
     
-    # Прогноз
     forecast_data = forecast[forecast['ds'] > df['ds'].max()]
     
     fig.add_trace(go.Scatter(
@@ -260,7 +226,6 @@ def plot_forecast(df, forecast, title):
         hovertemplate='<b>Дата:</b> %{x}<br><b>Прогноз:</b> %{y:.0f}<extra></extra>'
     ))
     
-    # Доверительный интервал
     if 'yhat_lower' in forecast_data.columns:
         fig.add_trace(go.Scatter(
             x=forecast_data['ds'],
@@ -282,38 +247,12 @@ def plot_forecast(df, forecast, title):
             hovertemplate='<b>Нижняя граница:</b> %{y:.0f}<extra></extra>'
         ))
     
-    # Настройка макета
     fig.update_layout(
-        title={
-            'text': f'<b>{title}</b>',
-            'y': 0.95,
-            'x': 0.5,
-            'xanchor': 'center',
-            'yanchor': 'top',
-            'font': {'size': 24, 'color': '#1f77b4'}
-        },
-        xaxis=dict(
-            title='<b>Дата</b>',
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(128,128,128,0.2)',
-            tickformat='%Y-%m-%d'
-        ),
-        yaxis=dict(
-            title='<b>Количество продаж</b>',
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(128,128,128,0.2)'
-        ),
+        title={'text': f'<b>{title}</b>', 'y': 0.95, 'x': 0.5, 'xanchor': 'center', 'yanchor': 'top', 'font': {'size': 24, 'color': '#1f77b4'}},
+        xaxis=dict(title='<b>Дата</b>', showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)', tickformat='%Y-%m-%d'),
+        yaxis=dict(title='<b>Количество продаж</b>', showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)'),
         hovermode='x unified',
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            bgcolor='rgba(255,255,255,0.8)'
-        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor='rgba(255,255,255,0.8)'),
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         font=dict(family="Arial", size=12)
@@ -333,45 +272,84 @@ def plot_prophet_components(model, forecast):
     )
     return fig
 
-def plot_monthly_analysis(df, selected_magazin, selected_segment):
-    """Создает анализ продаж по месяцам"""
+def plot_monthly_analysis_with_forecast(df, selected_magazin, selected_segment, model, forecast_days):
+    """Создает анализ продаж по месяцам с прогнозом"""
     filtered_df = df.copy()
     if selected_magazin != 'Все':
         filtered_df = filtered_df[filtered_df['Magazin'] == selected_magazin]
     if selected_segment != 'Все':
         filtered_df = filtered_df[filtered_df['Segment'] == selected_segment]
     
+    # Исторические данные
     filtered_df['year_month'] = filtered_df['Datasales'].dt.to_period('M')
-    
-    monthly_data = filtered_df.groupby('year_month').agg({
-        'Sum': 'sum',
-        'Qty': 'sum'
-    }).reset_index()
-    
+    monthly_data = filtered_df.groupby('year_month').agg({'Sum': 'sum', 'Qty': 'sum'}).reset_index()
     monthly_data['year_month'] = monthly_data['year_month'].astype(str)
+    monthly_data['type'] = 'Исторические'
     
-    # Создаем subplot с двумя графиками
+    # Прогноз
+    if model is not None:
+        prophet_data = prepare_prophet_data(filtered_df)
+        future = model.make_future_dataframe(periods=forecast_days)
+        forecast_full = model.predict(future)
+        
+        # Берем только будущие даты
+        forecast_future = forecast_full[forecast_full['ds'] > prophet_data['ds'].max()].copy()
+        forecast_future['year_month'] = pd.to_datetime(forecast_future['ds']).dt.to_period('M')
+        
+        # Средняя цена для расчета выручки
+        avg_price = filtered_df['Price'].mean() if not filtered_df.empty else 0
+        
+        forecast_monthly = forecast_future.groupby('year_month').agg({'yhat': 'sum'}).reset_index()
+        forecast_monthly['Sum'] = forecast_monthly['yhat'] * avg_price
+        forecast_monthly['Qty'] = forecast_monthly['yhat']
+        forecast_monthly['year_month'] = forecast_monthly['year_month'].astype(str)
+        forecast_monthly['type'] = 'Прогноз'
+        
+        # Объединяем
+        combined_data = pd.concat([
+            monthly_data[['year_month', 'Sum', 'type']],
+            forecast_monthly[['year_month', 'Sum', 'type']]
+        ], ignore_index=True)
+    else:
+        combined_data = monthly_data[['year_month', 'Sum', 'type']]
+    
+    # График
     fig = go.Figure()
     
-    # Выручка
+    hist_data = combined_data[combined_data['type'] == 'Исторические']
     fig.add_trace(go.Bar(
-        x=monthly_data['year_month'],
-        y=monthly_data['Sum'],
-        name='💰 Выручка (ГРН)',
-        marker_color='#FF6B6B',
-        text=monthly_data['Sum'].round(0),
+        x=hist_data['year_month'],
+        y=hist_data['Sum'],
+        name='💰 Историческая выручка',
+        marker_color='#636EFA',
+        text=hist_data['Sum'].round(0),
         texttemplate='%{text:,.0f}',
         textposition='outside',
         hovertemplate='<b>Месяц:</b> %{x}<br><b>Выручка:</b> %{y:,.0f} ГРН<extra></extra>'
     ))
     
+    if model is not None:
+        forecast_data = combined_data[combined_data['type'] == 'Прогноз']
+        fig.add_trace(go.Bar(
+            x=forecast_data['year_month'],
+            y=forecast_data['Sum'],
+            name='🔮 Прогноз выручки',
+            marker_color='#00CC96',
+            marker_pattern_shape="/",
+            text=forecast_data['Sum'].round(0),
+            texttemplate='%{text:,.0f}',
+            textposition='outside',
+            hovertemplate='<b>Месяц:</b> %{x}<br><b>Прогноз:</b> %{y:,.0f} ГРН<extra></extra>'
+        ))
+    
     fig.update_layout(
-        title=f'<b>📊 Анализ продаж по месяцам - {selected_segment}</b>',
+        title=f'<b>📊 Анализ продаж по месяцам с прогнозом - {selected_segment}</b>',
         title_x=0.5,
         xaxis_title='<b>Месяц</b>',
         yaxis_title='<b>Выручка (ГРН)</b>',
         plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Arial", size=12)
+        font=dict(family="Arial", size=12),
+        barmode='group'
     )
     
     return fig
@@ -426,7 +404,6 @@ def generate_insights(df, forecast_data, selected_magazin, selected_segment):
             insights.append(f"📉 **СНИЖЕНИЕ ПРОДАЖ**: Падение на {abs(growth_rate):.1f}%. Требуются промо-акции!")
             problems.append("⚠️ **ПРОБЛЕМА**: Значительное снижение продаж")
     
-    # Анализ волатильности
     if len(prophet_data) > 1:
         volatility = prophet_data['y'].std() / prophet_data['y'].mean() if prophet_data['y'].mean() > 0 else 0
         
@@ -436,7 +413,6 @@ def generate_insights(df, forecast_data, selected_magazin, selected_segment):
         elif volatility < 0.1:
             insights.append("✅ **СТАБИЛЬНЫЕ ПРОДАЖИ**: Можно точно планировать закупки")
     
-    # Анализ трендов в прогнозе
     if len(forecast_data) > 7:
         forecast_trend = forecast_data.iloc[-7:]['yhat'].mean() / forecast_data.iloc[:7]['yhat'].mean()
         
@@ -508,7 +484,6 @@ def show_forecast_statistics(filtered_df, forecast, forecast_days, selected_maga
         
         st.dataframe(revenue_df, use_container_width=True, hide_index=True)
     
-    # Дополнительная информация
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -518,12 +493,9 @@ def show_forecast_statistics(filtered_df, forecast, forecast_days, selected_maga
     with col3:
         st.info(f"📅 **Период прогноза**: {forecast_days} дней")
 
-# Главное приложение
 def main():
-    # Заголовок приложения
     st.markdown('<h1 class="main-header">🏪 Система прогнозирования продаж</h1>', unsafe_allow_html=True)
     
-    # Боковая панель с настройками
     with st.sidebar:
         st.markdown("## ⚙️ Настройки")
         
@@ -534,7 +506,6 @@ def main():
         )
     
     if uploaded_file is None:
-        # Показываем инструкции
         st.markdown("""
         ## 👋 Добро пожаловать в систему прогнозирования продаж!
         
@@ -577,16 +548,13 @@ def main():
         
         return
     
-    # Загрузка и валидация данных
     df = load_and_validate_data(uploaded_file)
     
     if df is None:
         return
     
-    # Показ статистики
     show_data_statistics(df)
     
-    # Панель управления
     st.markdown("## 🎛️ Панель управления")
     
     col1, col2, col3 = st.columns(3)
@@ -609,13 +577,11 @@ def main():
         forecast_days = st.selectbox(
             "📅 Период прогноза",
             [7, 14, 30],
-            index=1,  # По умолчанию 14 дней
+            index=1,
             help="Количество дней для прогнозирования"
         )
     
-    # Кнопка прогнозирования
     if st.button("🔮 Создать прогноз", type="primary", use_container_width=True):
-        # Фильтрация данных
         filtered_df = df.copy()
         
         if selected_magazin != 'Все':
@@ -628,10 +594,7 @@ def main():
             st.error("❌ Недостаточно данных для прогнозирования (минимум 10 записей)")
             return
         
-        # Подготовка данных для Prophet
         prophet_data = prepare_prophet_data(filtered_df)
-        
-        # Обучение модели
         model, forecast = train_prophet_model(prophet_data, periods=forecast_days)
         
         if model is None or forecast is None:
@@ -639,10 +602,8 @@ def main():
         
         st.success("✅ Модель успешно обучена!")
         
-        # Показ статистики прогноза
         show_forecast_statistics(filtered_df, forecast, forecast_days, selected_magazin, selected_segment, df)
         
-        # Основной график прогноза
         st.markdown("## 📈 Прогноз продаж")
         
         fig_main = plot_forecast(
@@ -652,30 +613,25 @@ def main():
         )
         st.plotly_chart(fig_main, use_container_width=True)
         
-        # Анализ компонентов
         st.markdown("## 🔍 Детальный анализ")
         
         fig_components = plot_prophet_components(model, forecast)
         st.plotly_chart(fig_components, use_container_width=True)
         
-        # Анализ по месяцам
-        st.markdown("## 📊 Анализ по месяцам")
-        fig_monthly = plot_monthly_analysis(df, selected_magazin, selected_segment)
+        st.markdown("## 📊 Анализ по месяцам с прогнозом выручки")
+        fig_monthly = plot_monthly_analysis_with_forecast(df, selected_magazin, selected_segment, model, forecast_days)
         st.plotly_chart(fig_monthly, use_container_width=True)
         
-        # Топ модели по сегментам
         st.markdown("## 🏆 Топ-10 моделей по сегментам")
         
         segments_top_models = get_top_models_by_segment(df, selected_magazin)
         
-        # Создаем табы для разных сегментов
         if segments_top_models:
             tabs = st.tabs([f"📦 {segment}" for segment in segments_top_models.keys()])
             
             for tab, (segment, top_models) in zip(tabs, segments_top_models.items()):
                 with tab:
                     if not top_models.empty:
-                        # Форматируем данные для красивого отображения
                         display_df = top_models[['Model', 'Qty', 'Sum', 'Price']].rename(columns={
                             'Model': '🏷️ Модель',
                             'Qty': '📦 Количество',
@@ -683,50 +639,23 @@ def main():
                             'Price': '💵 Средняя цена'
                         })
                         
-                        st.dataframe(
-                            display_df,
-                            use_container_width=True,
-                            hide_index=True
-                        )
-                        
-                        # Мини-график для топ-5 моделей
-                        if len(top_models) >= 5:
-                            top_5 = top_models.head(5)
-                            fig_top = px.bar(
-                                top_5,
-                                x='Model',
-                                y='Qty',
-                                title=f'Топ-5 моделей в сегменте {segment}',
-                                color='Qty',
-                                color_continuous_scale='viridis'
-                            )
-                            fig_top.update_layout(
-                                xaxis_title='Модель',
-                                yaxis_title='Количество продаж',
-                                showlegend=False,
-                                height=400
-                            )
-                            st.plotly_chart(fig_top, use_container_width=True)
+                        st.dataframe(display_df, use_container_width=True, hide_index=True)
                     else:
                         st.info("🔍 Нет данных для этого сегмента")
         
-        # Инсайты и рекомендации
         st.markdown("## 💡 Инсайты и рекомендации")
         
         insights, problems = generate_insights(df, forecast, selected_magazin, selected_segment)
         
-        # Показываем проблемы
         if problems:
             st.markdown("### 🚨 Выявленные проблемы:")
             for problem in problems:
                 st.markdown(f'<div class="problem-card">{problem}</div>', unsafe_allow_html=True)
         
-        # Показываем инсайты
         st.markdown("### 🎯 Рекомендации:")
         for insight in insights:
             st.markdown(f'<div class="insight-card">{insight}</div>', unsafe_allow_html=True)
         
-        # Детальный прогноз по дням
         st.markdown("## 📋 Детальный прогноз по дням")
         
         forecast_display = forecast.tail(forecast_days).copy()
@@ -744,7 +673,6 @@ def main():
         
         st.dataframe(detailed_forecast, use_container_width=True, hide_index=True)
         
-        # Дополнительная статистика
         st.markdown("## 📈 Дополнительная аналитика")
         
         col1, col2, col3, col4 = st.columns(4)
@@ -766,7 +694,8 @@ def main():
             )
         
         with col3:
-            forecast_revenue = total_forecast * filtered_df['Price'].mean()
+            avg_price = filtered_df['Price'].mean() if not filtered_df.empty else 0
+            forecast_revenue = total_forecast * avg_price
             st.metric(
                 "💰 Прогноз выручки",
                 f"{forecast_revenue:,.0f} ГРН"
@@ -779,13 +708,11 @@ def main():
                 f"{confidence_score:.0f}%"
             )
         
-        # Экспорт результатов
         st.markdown("## 📥 Экспорт результатов")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            # Подготовка данных для экспорта
             export_data = detailed_forecast.copy()
             export_data['Магазин'] = selected_magazin
             export_data['Сегмент'] = selected_segment
@@ -800,7 +727,6 @@ def main():
             )
         
         with col2:
-            # Краткий отчет
             report = f"""
 # Отчет по прогнозированию продаж
 
@@ -827,6 +753,5 @@ def main():
                 use_container_width=True
             )
 
-# Запуск приложения
 if __name__ == "__main__":
     main()
