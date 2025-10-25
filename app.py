@@ -4,7 +4,8 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from prophet import Prophet
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
+from scipy.signal import savgol_filter
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -21,7 +22,9 @@ st.markdown("""
     .main-header {
         font-size: 3rem;
         font-weight: bold;
-        color: #1f77b4;
+        background: linear-gradient(120deg, #1f77b4, #667eea);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
         text-align: center;
         margin-bottom: 2rem;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
@@ -29,30 +32,48 @@ st.markdown("""
     
     .metric-container {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 10px;
+        padding: 1.5rem;
+        border-radius: 15px;
         color: white;
         text-align: center;
         margin: 0.5rem 0;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        transition: transform 0.3s ease;
+    }
+    
+    .metric-container:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 24px rgba(0,0,0,0.3);
     }
     
     .insight-card {
         background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        padding: 1rem;
-        border-radius: 10px;
+        padding: 1.2rem;
+        border-radius: 12px;
         color: white;
         margin: 0.5rem 0;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        border-left: 5px solid #fff;
     }
     
     .problem-card {
-        background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
-        padding: 1rem;
-        border-radius: 10px;
+        background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
+        padding: 1.2rem;
+        border-radius: 12px;
         margin: 0.5rem 0;
-        border-left: 4px solid #ff6b6b;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border-left: 5px solid #ee5a6f;
+        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        color: white;
+        font-weight: 500;
+    }
+    
+    .accuracy-card {
+        background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        margin: 1rem 0;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        color: white;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -141,11 +162,52 @@ def show_data_statistics(df):
     with col3:
         st.info(f"📈 **Средние продажи/день**: {df.groupby('Datasales')['Qty'].sum().mean():.1f} шт.")
 
-def prepare_prophet_data(df, target_col='Qty'):
-    """Подготавливает данные для Prophet"""
+def remove_outliers_iqr(data, multiplier=1.5):
+    """Удаляет выбросы методом IQR"""
+    Q1 = data['y'].quantile(0.25)
+    Q3 = data['y'].quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - multiplier * IQR
+    upper_bound = Q3 + multiplier * IQR
+    
+    # Заменяем выбросы на границы
+    data_cleaned = data.copy()
+    data_cleaned['y'] = data_cleaned['y'].clip(lower=lower_bound, upper=upper_bound)
+    return data_cleaned
+
+def smooth_data(data, method='rolling', window=7):
+    """Сглаживает данные различными методами"""
+    data_smooth = data.copy()
+    
+    if method == 'rolling':
+        # Скользящее среднее
+        data_smooth['y'] = data['y'].rolling(window=window, min_periods=1, center=True).mean()
+    elif method == 'ewm':
+        # Экспоненциальное сглаживание
+        data_smooth['y'] = data['y'].ewm(span=window, adjust=False).mean()
+    elif method == 'savgol':
+        # Фильтр Савицкого-Голея
+        if len(data) >= window:
+            data_smooth['y'] = savgol_filter(data['y'], window_length=min(window, len(data)//2*2-1), polyorder=2)
+    
+    return data_smooth
+
+def prepare_prophet_data(df, target_col='Qty', remove_outliers=False, smooth_method=None, smooth_window=7):
+    """Подготавливает данные для Prophet с обработкой выбросов и сглаживанием"""
     prophet_df = df.groupby('Datasales')[target_col].sum().reset_index()
     prophet_df.columns = ['ds', 'y']
-    return prophet_df
+    
+    original_df = prophet_df.copy()
+    
+    # Удаляем выбросы
+    if remove_outliers:
+        prophet_df = remove_outliers_iqr(prophet_df)
+    
+    # Сглаживаем данные
+    if smooth_method and smooth_method != 'none':
+        prophet_df = smooth_data(prophet_df, method=smooth_method, window=smooth_window)
+    
+    return prophet_df, original_df
 
 def train_prophet_model(train_data, periods=30):
     """Обучает модель Prophet"""
@@ -173,6 +235,161 @@ def train_prophet_model(train_data, periods=30):
         st.error(f"❌ Ошибка при обучении модели: {str(e)}")
         return None, None
 
+def plot_data_preprocessing(original_data, processed_data, title="Обработка данных"):
+    """Создает график сравнения оригинальных и обработанных данных"""
+    fig = go.Figure()
+    
+    # Оригинальные данные
+    fig.add_trace(go.Scatter(
+        x=original_data['ds'],
+        y=original_data['y'],
+        mode='markers',
+        name='📊 Оригинальные данные',
+        marker=dict(size=6, color='rgba(99, 110, 250, 0.4)', symbol='circle'),
+        hovertemplate='<b>Дата:</b> %{x}<br><b>Продажи:</b> %{y}<extra></extra>'
+    ))
+    
+    # Обработанные данные
+    fig.add_trace(go.Scatter(
+        x=processed_data['ds'],
+        y=processed_data['y'],
+        mode='lines+markers',
+        name='✨ Обработанные данные',
+        line=dict(color='#00CC96', width=3),
+        marker=dict(size=8, symbol='diamond'),
+        hovertemplate='<b>Дата:</b> %{x}<br><b>Продажи:</b> %{y:.1f}<extra></extra>'
+    ))
+    
+    fig.update_layout(
+        title={'text': f'<b>{title}</b>', 'y': 0.95, 'x': 0.5, 'xanchor': 'center', 'yanchor': 'top', 'font': {'size': 20}},
+        xaxis=dict(title='<b>Дата</b>', showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)'),
+        yaxis=dict(title='<b>Количество продаж</b>', showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)'),
+        hovermode='x unified',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor='rgba(255,255,255,0.8)'),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(family="Arial", size=12),
+        height=500
+    )
+    
+    return fig
+
+def calculate_model_accuracy(train_data, model):
+    """Рассчитывает метрики точности модели"""
+    try:
+        # Делаем прогноз на исторических данных
+        forecast = model.predict(train_data)
+        
+        y_true = train_data['y'].values
+        y_pred = forecast['yhat'].values
+        
+        # Убираем отрицательные прогнозы для корректного расчета
+        y_pred = np.maximum(y_pred, 0)
+        
+        # Рассчитываем метрики
+        mae = mean_absolute_error(y_true, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+        
+        # MAPE - избегаем деления на ноль
+        mask = y_true != 0
+        if mask.sum() > 0:
+            mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+        else:
+            mape = 0
+        
+        # R² score
+        ss_res = np.sum((y_true - y_pred) ** 2)
+        ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+        r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+        
+        # Средняя ошибка в процентах
+        mean_error_pct = (mae / np.mean(y_true)) * 100 if np.mean(y_true) > 0 else 0
+        
+        return {
+            'MAE': mae,
+            'RMSE': rmse,
+            'MAPE': mape,
+            'R2': r2,
+            'Mean_Error_Pct': mean_error_pct
+        }
+    except Exception as e:
+        st.warning(f"⚠️ Не удалось рассчитать метрики: {str(e)}")
+        return None
+
+def show_accuracy_table(accuracy_metrics):
+    """Отображает таблицу с метриками точности"""
+    if accuracy_metrics is None:
+        return
+    
+    st.markdown("## 🎯 Точность модели прогнозирования")
+    
+    # Интерпретация метрик
+    mape = accuracy_metrics['MAPE']
+    if mape < 10:
+        quality = "🟢 Отлично"
+        quality_desc = "Очень высокая точность"
+        recommendation = "Модель готова к использованию без дополнительных настроек"
+    elif mape < 20:
+        quality = "🟡 Хорошо"
+        quality_desc = "Хорошая точность"
+        recommendation = "Модель пригодна для использования"
+    elif mape < 30:
+        quality = "🟠 Удовлетворительно"
+        quality_desc = "Приемлемая точность"
+        recommendation = "Рекомендуется использовать сглаживание данных"
+    else:
+        quality = "🔴 Низкая"
+        quality_desc = "Требуется улучшение"
+        recommendation = "⚠️ РЕКОМЕНДУЕТСЯ: включите удаление выбросов и сглаживание (скользящее среднее, 7 дней)"
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        metrics_df = pd.DataFrame({
+            '📊 Метрика': [
+                'MAE (Средняя абсолютная ошибка)',
+                'RMSE (Корень из средней квадратичной ошибки)',
+                'MAPE (Средняя абсолютная процентная ошибка)',
+                'R² (Коэффициент детерминации)',
+                'Средняя ошибка (%)'
+            ],
+            '📈 Значение': [
+                f"{accuracy_metrics['MAE']:.2f}",
+                f"{accuracy_metrics['RMSE']:.2f}",
+                f"{accuracy_metrics['MAPE']:.2f}%",
+                f"{accuracy_metrics['R2']:.4f}",
+                f"{accuracy_metrics['Mean_Error_Pct']:.2f}%"
+            ],
+            '💡 Интерпретация': [
+                'Средняя ошибка прогноза в единицах',
+                'Чувствительна к большим ошибкам',
+                'Процент отклонения от факта',
+                'Качество модели (0-1, выше = лучше)',
+                'Средняя погрешность'
+            ]
+        })
+        
+        st.dataframe(metrics_df, use_container_width=True, hide_index=True)
+        
+        # Рекомендации
+        if mape >= 30:
+            st.warning(f"💡 **Рекомендация**: {recommendation}")
+        else:
+            st.info(f"💡 **Статус**: {recommendation}")
+    
+    with col2:
+        st.markdown(
+            f"""<div class="accuracy-card">
+                <h3 style="margin:0; font-size: 1.5rem;">Общая оценка</h3>
+                <h2 style="margin:0.5rem 0; font-size: 2rem;">{quality}</h2>
+                <p style="margin:0; font-size: 1.1rem;">{quality_desc}</p>
+                <hr style="border-color: rgba(255,255,255,0.3); margin: 1rem 0;">
+                <p style="margin:0; font-size: 0.9rem;">MAPE: {mape:.1f}%</p>
+                <p style="margin:0; font-size: 0.9rem;">R²: {accuracy_metrics['R2']:.3f}</p>
+            </div>""",
+            unsafe_allow_html=True
+        )
+
 def calculate_segment_volatility(df, selected_magazin, selected_segment):
     """Вычисляет волатильность сегмента"""
     filtered = df.copy()
@@ -184,22 +401,35 @@ def calculate_segment_volatility(df, selected_magazin, selected_segment):
     daily_sales = filtered.groupby('Datasales')['Qty'].sum()
     if len(daily_sales) < 2:
         return 0.2
-        
-    volatility = daily_sales.std() / daily_sales.mean() if daily_sales.mean() > 0 else 0.2
-    return max(0.1, min(0.5, volatility))
+    
+    # Коэффициент вариации (более корректная мера волатильности)
+    mean_sales = daily_sales.mean()
+    if mean_sales == 0:
+        return 0.2
+    
+    volatility = daily_sales.std() / mean_sales
+    # Ограничиваем разумными пределами
+    return np.clip(volatility, 0.1, 0.5)
 
 def get_forecast_scenarios(forecast, segment_volatility=0.2):
     """Создает сценарии прогноза"""
     realistic = forecast['yhat'].values
     
     if 'yhat_lower' in forecast.columns and 'yhat_upper' in forecast.columns:
-        optimistic = forecast['yhat_upper'].values
+        # Используем доверительные интервалы Prophet
         pessimistic = forecast['yhat_lower'].values
+        optimistic = forecast['yhat_upper'].values
     else:
-        pessimistic = realistic * (1 - segment_volatility)
-        optimistic = realistic * (1 + segment_volatility * 0.7)
-        
-    return realistic, optimistic, np.maximum(pessimistic, 0)
+        # Создаем интервалы на основе волатильности
+        pessimistic = realistic * (1 - segment_volatility * 1.5)
+        optimistic = realistic * (1 + segment_volatility)
+    
+    # Гарантируем неотрицательность
+    pessimistic = np.maximum(pessimistic, 0)
+    realistic = np.maximum(realistic, 0)
+    optimistic = np.maximum(optimistic, 0)
+    
+    return realistic, optimistic, pessimistic
 
 def plot_forecast(df, forecast, title):
     """Создает интерактивный график прогноза"""
@@ -244,7 +474,7 @@ def plot_forecast(df, forecast, title):
             mode='lines',
             fillcolor='rgba(0, 204, 150, 0.2)',
             line_color='rgba(0,0,0,0)',
-            name='📈 Доверительный интервал',
+            name='📈 Доверительный интервал (80%)',
             hovertemplate='<b>Нижняя граница:</b> %{y:.0f}<extra></extra>'
         ))
     
@@ -256,7 +486,8 @@ def plot_forecast(df, forecast, title):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor='rgba(255,255,255,0.8)'),
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Arial", size=12)
+        font=dict(family="Arial", size=12),
+        height=600
     )
     
     return fig
@@ -269,11 +500,12 @@ def plot_prophet_components(model, forecast):
         title_text="<b>📈 Анализ компонентов временного ряда</b>",
         title_x=0.5,
         font=dict(family="Arial", size=12),
-        plot_bgcolor='rgba(0,0,0,0)'
+        plot_bgcolor='rgba(0,0,0,0)',
+        height=800
     )
     return fig
 
-def plot_monthly_analysis_with_forecast(df, selected_magazin, selected_segment, model, forecast_days):
+def plot_monthly_analysis_with_forecast(df, selected_magazin, selected_segment, model, forecast_days, remove_outliers=False, smooth_method=None):
     """Создает анализ продаж по месяцам с прогнозом"""
     filtered_df = df.copy()
     if selected_magazin != 'Все':
@@ -289,20 +521,23 @@ def plot_monthly_analysis_with_forecast(df, selected_magazin, selected_segment, 
     
     # Прогноз
     if model is not None:
-        prophet_data = prepare_prophet_data(filtered_df)
+        prophet_data, _ = prepare_prophet_data(filtered_df, remove_outliers=remove_outliers, smooth_method=smooth_method)
         future = model.make_future_dataframe(periods=forecast_days)
         forecast_full = model.predict(future)
         
         # Берем только будущие даты
         forecast_future = forecast_full[forecast_full['ds'] > prophet_data['ds'].max()].copy()
+        
+        # Расчет средней цены за единицу
+        avg_price = (filtered_df['Sum'] / filtered_df['Qty']).mean() if len(filtered_df) > 0 and filtered_df['Qty'].sum() > 0 else 0
+        
+        # Группируем прогноз по месяцам
         forecast_future['year_month'] = pd.to_datetime(forecast_future['ds']).dt.to_period('M')
-        
-        # Средняя цена для расчета выручки
-        avg_price = filtered_df['Price'].mean() if not filtered_df.empty else 0
-        
         forecast_monthly = forecast_future.groupby('year_month').agg({'yhat': 'sum'}).reset_index()
-        forecast_monthly['Sum'] = forecast_monthly['yhat'] * avg_price
+        
+        # Рассчитываем выручку: количество * средняя цена
         forecast_monthly['Qty'] = forecast_monthly['yhat']
+        forecast_monthly['Sum'] = forecast_monthly['yhat'] * avg_price
         forecast_monthly['year_month'] = forecast_monthly['year_month'].astype(str)
         forecast_monthly['type'] = 'Прогноз'
         
@@ -350,7 +585,8 @@ def plot_monthly_analysis_with_forecast(df, selected_magazin, selected_segment, 
         yaxis_title='<b>Выручка (ГРН)</b>',
         plot_bgcolor='rgba(0,0,0,0)',
         font=dict(family="Arial", size=12),
-        barmode='group'
+        barmode='group',
+        height=500
     )
     
     return fig
@@ -391,36 +627,54 @@ def generate_insights(df, forecast_data, selected_magazin, selected_segment):
     if selected_segment != 'Все':
         filtered_df = filtered_df[filtered_df['Segment'] == selected_segment]
     
-    prophet_data = prepare_prophet_data(filtered_df)
+    prophet_data, _ = prepare_prophet_data(filtered_df)
     
-    if len(prophet_data) >= 30:
+    # Корректный расчет роста продаж
+    if len(prophet_data) >= 60:
         recent_data = prophet_data.tail(30)['y'].mean()
-        older_data = prophet_data.iloc[-60:-30]['y'].mean() if len(prophet_data) >= 60 else recent_data
+        older_data = prophet_data.iloc[-60:-30]['y'].mean()
         
-        growth_rate = (recent_data / older_data - 1) * 100 if older_data > 0 else 0
+        if older_data > 0:
+            growth_rate = (recent_data / older_data - 1) * 100
+            
+            if growth_rate > 10:
+                insights.append(f"📈 **РОСТ ПРОДАЖ**: Наблюдается рост на {growth_rate:.1f}%. Увеличьте закупки!")
+            elif growth_rate < -10:
+                insights.append(f"📉 **СНИЖЕНИЕ ПРОДАЖ**: Падение на {abs(growth_rate):.1f}%. Требуются промо-акции!")
+                problems.append("⚠️ **ПРОБЛЕМА**: Значительное снижение продаж")
+    elif len(prophet_data) >= 30:
+        # Если данных меньше 60 дней, сравниваем с общим средним
+        recent_data = prophet_data.tail(15)['y'].mean()
+        overall_mean = prophet_data['y'].mean()
         
-        if growth_rate > 10:
-            insights.append(f"📈 **РОСТ ПРОДАЖ**: Наблюдается рост на {growth_rate:.1f}%. Увеличьте закупки!")
-        elif growth_rate < -10:
-            insights.append(f"📉 **СНИЖЕНИЕ ПРОДАЖ**: Падение на {abs(growth_rate):.1f}%. Требуются промо-акции!")
-            problems.append("⚠️ **ПРОБЛЕМА**: Значительное снижение продаж")
+        if overall_mean > 0:
+            growth_rate = (recent_data / overall_mean - 1) * 100
+            if abs(growth_rate) > 10:
+                trend_text = "рост" if growth_rate > 0 else "снижение"
+                insights.append(f"📊 **ТРЕНД**: {trend_text.capitalize()} на {abs(growth_rate):.1f}% относительно среднего")
     
+    # Волатильность
     if len(prophet_data) > 1:
-        volatility = prophet_data['y'].std() / prophet_data['y'].mean() if prophet_data['y'].mean() > 0 else 0
+        volatility = calculate_segment_volatility(df, selected_magazin, selected_segment)
         
-        if volatility > 0.5:
+        if volatility > 0.4:
             insights.append("⚡ **ВЫСОКАЯ ВОЛАТИЛЬНОСТЬ**: Увеличьте страховые запасы на 30%")
             problems.append("🎯 **НЕСТАБИЛЬНОСТЬ**: Сложно планировать из-за высокой волатильности")
-        elif volatility < 0.1:
+        elif volatility < 0.15:
             insights.append("✅ **СТАБИЛЬНЫЕ ПРОДАЖИ**: Можно точно планировать закупки")
     
+    # Прогноз тренда
     if len(forecast_data) > 7:
-        forecast_trend = forecast_data.iloc[-7:]['yhat'].mean() / forecast_data.iloc[:7]['yhat'].mean()
+        first_week = forecast_data.head(7)['yhat'].mean()
+        last_week = forecast_data.tail(7)['yhat'].mean()
         
-        if forecast_trend > 1.05:
-            insights.append("🚀 **ПРОГНОЗ РОСТА**: Ожидается рост. Подготовьтесь к увеличению спроса!")
-        elif forecast_trend < 0.95:
-            insights.append("⬇️ **ПРОГНОЗ СПАДА**: Возможно снижение. Планируйте промо-активности")
+        if first_week > 0:
+            forecast_trend = last_week / first_week
+            
+            if forecast_trend > 1.1:
+                insights.append("🚀 **ПРОГНОЗ РОСТА**: Ожидается рост >10%. Подготовьтесь к увеличению спроса!")
+            elif forecast_trend < 0.9:
+                insights.append("⬇️ **ПРОГНОЗ СПАДА**: Возможно снижение >10%. Планируйте промо-активности")
     
     if not insights:
         insights.append("📊 **СТАБИЛЬНАЯ СИТУАЦИЯ**: Продолжайте мониторинг показателей")
@@ -433,13 +687,15 @@ def show_forecast_statistics(filtered_df, forecast, forecast_days, selected_maga
     
     historical_data = filtered_df.groupby('Datasales')['Qty'].sum().reset_index()
     
+    # Корректное сравнение с историческими данными
     if len(historical_data) >= forecast_days:
         hist_qty = historical_data.tail(forecast_days)['Qty'].sum()
     else:
-        daily_avg = historical_data['Qty'].mean() if len(historical_data) > 0 else 0
-        hist_qty = daily_avg * forecast_days
+        # Если данных меньше, берем все доступные
+        hist_qty = historical_data['Qty'].sum()
     
-    avg_price = filtered_df['Price'].mean() if not filtered_df.empty else 0
+    # Корректный расчет средней цены
+    avg_price = (filtered_df['Sum'] / filtered_df['Qty']).mean() if len(filtered_df) > 0 and filtered_df['Qty'].sum() > 0 else 0
     hist_sum = hist_qty * avg_price
     
     segment_volatility = calculate_segment_volatility(df, selected_magazin, selected_segment)
@@ -494,109 +750,6 @@ def show_forecast_statistics(filtered_df, forecast, forecast_days, selected_maga
     with col3:
         st.info(f"📅 **Период прогноза**: {forecast_days} дней")
 
-# НОВЫЙ БЛОК
-def show_advanced_analytics(forecast, prophet_data, segment_volatility):
-    """Отображает расширенную аналитику по качеству модели и вероятностям."""
-    st.markdown("## 📈 Дополнительная аналитика")
-
-    # 1. Расчет метрик
-    # Совмещаем фактические данные и предсказания по дате
-    performance_df = forecast.set_index('ds')[['yhat']].join(prophet_data.set_index('ds')).dropna()
-    y_true = performance_df['y']
-    y_pred = performance_df['yhat']
-
-    if len(y_true) < 2:
-        st.warning("Недостаточно исторических данных для расчета метрик качества.")
-        return
-
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    # Игнорируем деление на ноль в MAPE
-    mape = np.mean(np.abs((y_true - y_pred) / y_true[y_true != 0])) * 100
-    r2 = r2_score(y_true, y_pred)
-    accuracy = 100 - mape
-
-    # 2. Оценка качества модели
-    if r2 >= 0.8 and mape < 15:
-        quality_assessment = "Отлично"
-        quality_color = "green"
-    elif r2 >= 0.6 and mape < 25:
-        quality_assessment = "Хорошо"
-        quality_color = "blue"
-    elif r2 >= 0.4 and mape < 40:
-        quality_assessment = "Средне"
-        quality_color = "orange"
-    else:
-        quality_assessment = "Низко"
-        quality_color = "red"
-
-    # 3. Табличная статистика
-    st.markdown("### Табличная статистика")
-    
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("#### Метрики качества модели Prophet")
-        metrics_data = {
-            'Метрика': ['MAE', 'RMSE', 'MAPE', 'R²', 'Точность модели'],
-            'Значение': [f"{mae:.2f}", f"{rmse:.2f}", f"{mape:.2f}%", f"{r2:.2f}", f"{accuracy:.2f}%"],
-            'Интерпретация': [
-                'Средняя абсолютная ошибка.',
-                'Корень среднеквадратичной ошибки.',
-                'Средняя абсолютная процентная ошибка.',
-                'Коэффициент детерминации (0-1, где 1 = идеально).',
-                'Процент точности прогноза (100% - MAPE).'
-            ]
-        }
-        metrics_df = pd.DataFrame(metrics_data)
-        st.dataframe(metrics_df, hide_index=True, use_container_width=True)
-        st.markdown(f"**Оценка качества модели:** <span style='color:{quality_color}; font-weight:bold;'>{quality_assessment}</span>", unsafe_allow_html=True)
-
-
-    with col2:
-        st.markdown("#### Вероятность прогноза")
-        future_forecast = forecast[forecast['ds'] > prophet_data['ds'].max()]
-        
-        # Логика вероятностей на основе волатильности
-        base_prob = 75 - (segment_volatility * 50) # Чем выше волатильность, тем ниже уверенность
-        pess_prob = (100 - base_prob) / 2 
-        opt_prob = (100 - base_prob) / 2
-        
-        deviation_pess = (future_forecast['yhat'].mean() - future_forecast['yhat_lower'].mean()) / future_forecast['yhat'].mean() * 100 if future_forecast['yhat'].mean() > 0 else 0
-        deviation_opt = (future_forecast['yhat_upper'].mean() - future_forecast['yhat'].mean()) / future_forecast['yhat'].mean() * 100 if future_forecast['yhat'].mean() > 0 else 0
-
-        probability_data = {
-            'Сценарий': ['Пессимистичный', 'Реальный', 'Оптимистичный'],
-            'Вероятность': [f"{pess_prob:.1f}%", f"{base_prob:.1f}%", f"{opt_prob:.1f}%"],
-            'Диапазон отклонения': [f"до -{deviation_pess:.1f}%", "базовый", f"до +{deviation_opt:.1f}%"]
-        }
-        prob_df = pd.DataFrame(probability_data)
-        st.dataframe(prob_df, hide_index=True, use_container_width=True)
-
-    # 4. Факторы надежности
-    st.markdown("### Факторы надежности")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Волатильность сегмента", f"{segment_volatility:.1%}", help="Чем выше волатильность, тем сложнее прогнозировать. Влияет на ширину доверительного интервала.")
-    with col2:
-        st.metric("Качество модели (R²)", f"{r2:.2f}", help="Показывает, насколько хорошо модель объясняет исторические данные (идеально = 1).")
-    with col3:
-        st.metric("Средняя ошибка (MAPE)", f"{mape:.1f}%", help="Средний процент ошибки прогноза. Чем ниже, тем лучше.")
-    
-    # 5. График распределения ошибок
-    st.markdown("#### График распределения ошибок")
-    errors = y_true - y_pred
-    fig_errors = px.histogram(errors, nbins=30, title="Распределение ошибок (Факт - Прогноз)")
-    fig_errors.update_layout(
-        xaxis_title="Ошибка (шт.)",
-        yaxis_title="Частота",
-        plot_bgcolor='rgba(0,0,0,0)',
-        bargap=0.1
-    )
-    st.plotly_chart(fig_errors, use_container_width=True)
-    st.info("Идеальное распределение ошибок близко к нормальному (форма колокола) с центром в нуле. Это означает, что модель не имеет систематических смещений.")
-
-
 def main():
     st.markdown('<h1 class="main-header">🏪 Система прогнозирования продаж</h1>', unsafe_allow_html=True)
     
@@ -648,6 +801,7 @@ def main():
         - 📊 **Анализ трендов** и сезонности
         - 🏆 **Топ товаров** по сегментам
         - 💡 **Умные рекомендации** для бизнеса
+        - 🎯 **Метрики точности** модели (RMSE, MAE, MAPE, R²)
         """)
         
         return
@@ -685,6 +839,42 @@ def main():
             help="Количество дней для прогнозирования"
         )
     
+    # НОВОЕ: Настройки обработки данных
+    with st.expander("⚙️ Расширенные настройки обработки данных", expanded=False):
+        st.markdown("### 🧹 Обработка волатильных данных")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            remove_outliers = st.checkbox(
+                "🎯 Удалить выбросы",
+                value=False,
+                help="Удаляет аномальные значения методом IQR для улучшения точности"
+            )
+        
+        with col2:
+            smooth_method = st.selectbox(
+                "📈 Метод сглаживания",
+                ['none', 'rolling', 'ewm'],
+                index=0,
+                format_func=lambda x: {
+                    'none': '❌ Без сглаживания',
+                    'rolling': '📊 Скользящее среднее',
+                    'ewm': '📉 Экспоненциальное'
+                }[x],
+                help="Сглаживает волатильные данные для лучшего прогноза"
+            )
+        
+        with col3:
+            smooth_window = st.slider(
+                "🪟 Окно сглаживания",
+                min_value=3,
+                max_value=14,
+                value=7,
+                help="Количество дней для усреднения",
+                disabled=(smooth_method == 'none')
+            )
+    
     if st.button("🔮 Создать прогноз", type="primary", use_container_width=True):
         filtered_df = df.copy()
         
@@ -698,13 +888,47 @@ def main():
             st.error("❌ Недостаточно данных для прогнозирования (минимум 10 записей)")
             return
         
-        prophet_data = prepare_prophet_data(filtered_df)
+        # Подготовка данных с обработкой
+        prophet_data, original_data = prepare_prophet_data(
+            filtered_df, 
+            remove_outliers=remove_outliers, 
+            smooth_method=smooth_method if smooth_method != 'none' else None,
+            smooth_window=smooth_window
+        )
+        
+        # Показываем эффект обработки данных
+        if remove_outliers or (smooth_method and smooth_method != 'none'):
+            st.markdown("## 🧹 Предварительная обработка данных")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("### 📊 Статистика до обработки")
+                st.metric("Среднее", f"{original_data['y'].mean():.2f}")
+                st.metric("Std. отклонение", f"{original_data['y'].std():.2f}")
+                st.metric("Волатильность", f"{(original_data['y'].std()/original_data['y'].mean()*100):.1f}%")
+            
+            with col2:
+                st.markdown("### ✨ Статистика после обработки")
+                st.metric("Среднее", f"{prophet_data['y'].mean():.2f}", delta=f"{prophet_data['y'].mean() - original_data['y'].mean():.2f}")
+                st.metric("Std. отклонение", f"{prophet_data['y'].std():.2f}", delta=f"{prophet_data['y'].std() - original_data['y'].std():.2f}")
+                st.metric("Волатильность", f"{(prophet_data['y'].std()/prophet_data['y'].mean()*100):.1f}%", 
+                         delta=f"{(prophet_data['y'].std()/prophet_data['y'].mean()*100) - (original_data['y'].std()/original_data['y'].mean()*100):.1f}%")
+            
+            fig_preprocessing = plot_data_preprocessing(original_data, prophet_data, "🔄 Сравнение: Оригинальные vs Обработанные данные")
+            st.plotly_chart(fig_preprocessing, use_container_width=True)
+        
         model, forecast = train_prophet_model(prophet_data, periods=forecast_days)
         
         if model is None or forecast is None:
             return
         
         st.success("✅ Модель успешно обучена!")
+        
+        # Таблица с метриками точности
+        accuracy_metrics = calculate_model_accuracy(prophet_data, model)
+        if accuracy_metrics:
+            show_accuracy_table(accuracy_metrics)
         
         show_forecast_statistics(filtered_df, forecast, forecast_days, selected_magazin, selected_segment, df)
         
@@ -723,7 +947,7 @@ def main():
         st.plotly_chart(fig_components, use_container_width=True)
         
         st.markdown("## 📊 Анализ по месяцам с прогнозом выручки")
-        fig_monthly = plot_monthly_analysis_with_forecast(df, selected_magazin, selected_segment, model, forecast_days)
+        fig_monthly = plot_monthly_analysis_with_forecast(df, selected_magazin, selected_segment, model, forecast_days, remove_outliers, smooth_method if smooth_method != 'none' else None)
         st.plotly_chart(fig_monthly, use_container_width=True)
         
         st.markdown("## 🏆 Топ-10 моделей по сегментам")
@@ -777,8 +1001,40 @@ def main():
         
         st.dataframe(detailed_forecast, use_container_width=True, hide_index=True)
         
-        # ВЫЗОВ НОВОГО БЛОКА АНАЛИТИКИ
-        show_advanced_analytics(forecast, prophet_data, segment_volatility)
+        st.markdown("## 📈 Дополнительная аналитика")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            avg_daily_forecast = realistic.mean()
+            st.metric(
+                "📊 Средние продажи/день",
+                f"{avg_daily_forecast:.0f}",
+                delta=f"{avg_daily_forecast - prophet_data['y'].tail(30).mean():.0f}"
+            )
+        
+        with col2:
+            total_forecast = realistic.sum()
+            st.metric(
+                "📦 Общий прогноз",
+                f"{total_forecast:.0f}",
+                delta=f"{total_forecast - prophet_data['y'].tail(forecast_days).sum():.0f}"
+            )
+        
+        with col3:
+            avg_price = (filtered_df['Sum'] / filtered_df['Qty']).mean() if len(filtered_df) > 0 and filtered_df['Qty'].sum() > 0 else 0
+            forecast_revenue = total_forecast * avg_price
+            st.metric(
+                "💰 Прогноз выручки",
+                f"{forecast_revenue:,.0f} ГРН"
+            )
+        
+        with col4:
+            confidence_score = (1 - segment_volatility) * 100
+            st.metric(
+                "🎯 Уверенность прогноза",
+                f"{confidence_score:.0f}%"
+            )
         
         st.markdown("## 📥 Экспорт результатов")
         
@@ -799,13 +1055,6 @@ def main():
             )
         
         with col2:
-            # Расчеты для отчета
-            total_forecast = realistic.sum()
-            avg_daily_forecast = realistic.mean()
-            avg_price = filtered_df['Price'].mean() if not filtered_df.empty else 0
-            forecast_revenue = total_forecast * avg_price
-            confidence_score = (1 - segment_volatility) * 100
-            
             report = f"""
 # Отчет по прогнозированию продаж
 
@@ -819,6 +1068,12 @@ def main():
 - **Средние продажи/день:** {avg_daily_forecast:.0f} единиц
 - **Прогнозная выручка:** {forecast_revenue:,.0f} ГРН
 - **Уверенность прогноза:** {confidence_score:.0f}%
+
+## Метрики точности модели:
+- **MAE:** {accuracy_metrics['MAE']:.2f}
+- **RMSE:** {accuracy_metrics['RMSE']:.2f}
+- **MAPE:** {accuracy_metrics['MAPE']:.2f}%
+- **R²:** {accuracy_metrics['R2']:.4f}
 
 ## Рекомендации:
 {chr(10).join([f"- {insight}" for insight in insights])}
