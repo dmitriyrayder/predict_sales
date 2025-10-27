@@ -1,0 +1,27 @@
+# === Dockerfile ===
+FROM python:3.10-slim
+
+# 1. Устанавливаем системные зависимости
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libatlas-base-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Устанавливаем рабочую директорию
+WORKDIR /app
+
+# 3. Копируем зависимости
+COPY requirements.txt .
+
+# 4. Устанавливаем Python-зависимости
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 5. Копируем проект
+COPY . .
+
+# 6. Открываем порт Streamlit
+EXPOSE 8501
+
+# 7. Запуск приложения
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
