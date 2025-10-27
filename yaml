@@ -1,0 +1,39 @@
+name: Deploy Predict Sales App
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Авторизация в Docker Hub
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Сборка и пуш Docker-образа
+      - name: Build and push Docker image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/predict_sales:latest .
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/predict_sales:latest
+
+      # Подключение к серверу и обновление контейнера
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/predict_sales:latest
+            docker stop predict_sales || true
+            docker rm predict_sales || true
+            docker run -d --name predict_sales -p 8501:8501 ${{ secrets.DOCKERHUB_USERNAME }}/predict_sales:latest
