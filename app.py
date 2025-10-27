@@ -11,7 +11,7 @@ warnings.filterwarnings('ignore')
 
 # Конфигурация страницы
 st.set_page_config(
-    page_title="🏪 Система прогнозирования продаж", 
+    page_title="🏪 Система прогнозування продажів", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -1089,3 +1089,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
