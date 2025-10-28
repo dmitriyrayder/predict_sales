@@ -161,7 +161,7 @@ def show_data_statistics(df):
     with col1:
         st.info(f"📅 **Период данных**: {df['Datasales'].min().date()} - {df['Datasales'].max().date()}")
     with col2:
-        st.info(f"💰 **Общая выручка**: {df['Sum'].sum():,.0f} ГРН")
+        st.info(f"💰 **Общая выручка**: {df['Sum'].sum():.0f} ГРН")
     with col3:
         st.info(f"📈 **Средние продажи/день**: {df.groupby('Datasales')['Qty'].sum().mean():.1f} шт.")
 
@@ -466,7 +466,7 @@ def show_forecast_statistics(filtered_df, forecast, forecast_days, magazin, segm
     with col3:
         st.metric(
             "💰 Прогноз выручки",
-            f"{forecast_revenue:,.0f} ГРН"
+            f"{forecast_revenue:.0f} ГРН"
         )
 
 def plot_monthly_analysis_with_forecast(df, magazin, segment, model, forecast_days, remove_outliers, smooth_method):
@@ -527,16 +527,16 @@ def plot_monthly_analysis_with_forecast(df, magazin, segment, model, forecast_da
         avg_monthly_sales = monthly_data['Qty'].mean()
         st.metric(
             "📦 Средние продажи/месяц",
-            f"{avg_monthly_sales:,.0f} шт",
-            delta=f"{monthly_data['Qty'].iloc[-1] - avg_monthly_sales:,.0f}"
+            f"{avg_monthly_sales:.0f} шт",
+            delta=f"{monthly_data['Qty'].iloc[-1] - avg_monthly_sales:.0f}"
         )
     
     with col2:
         avg_monthly_revenue = monthly_data['Sum'].mean()
         st.metric(
             "💰 Средняя выручка/месяц",
-            f"{avg_monthly_revenue:,.0f} ГРН",
-            delta=f"{monthly_data['Sum'].iloc[-1] - avg_monthly_revenue:,.0f}"
+            f"{avg_monthly_revenue:.0f} ГРН",
+            delta=f"{monthly_data['Sum'].iloc[-1] - avg_monthly_revenue:.0f}"
         )
     
     with col3:
@@ -546,7 +546,7 @@ def plot_monthly_analysis_with_forecast(df, magazin, segment, model, forecast_da
             st.metric(
                 "📈 Рост (месяц к месяцу)",
                 f"{growth_rate:+.1f}%",
-                delta=f"{monthly_data['Qty'].iloc[-1] - monthly_data['Qty'].iloc[-2]:,.0f} шт"
+                delta=f"{monthly_data['Qty'].iloc[-1] - monthly_data['Qty'].iloc[-2]:.0f} шт"
             )
         else:
             st.metric("📈 Рост", "N/A")
@@ -554,11 +554,12 @@ def plot_monthly_analysis_with_forecast(df, magazin, segment, model, forecast_da
     with col4:
         # Прогноз роста
         if len(forecast_monthly) > 0 and len(monthly_data) > 0:
-            forecast_growth = ((forecast_monthly['Forecast_Qty'].iloc[0] / monthly_data['Qty'].iloc[-1]) - 1) * 100
+            # Сравниваем последний прогнозный месяц с последним фактическим месяцем
+            forecast_growth = ((forecast_monthly['Forecast_Qty'].iloc[-1] / monthly_data['Qty'].iloc[-1]) - 1) * 100
             st.metric(
                 "🔮 Прогноз роста",
                 f"{forecast_growth:+.1f}%",
-                delta="следующий месяц"
+                delta="прогнозный период"
             )
         else:
             st.metric("🔮 Прогноз роста", "N/A")
@@ -577,7 +578,7 @@ def plot_monthly_analysis_with_forecast(df, magazin, segment, model, forecast_da
         yaxis='y',
         text=monthly_data['Qty'].round(0),
         textposition='outside',
-        texttemplate='%{text:,.0f}'
+        texttemplate='%{text:.0f}'
     ))
     
     # Прогнозные продажи
@@ -589,7 +590,7 @@ def plot_monthly_analysis_with_forecast(df, magazin, segment, model, forecast_da
         yaxis='y',
         text=forecast_monthly['Forecast_Qty'].round(0),
         textposition='outside',
-        texttemplate='%{text:,.0f}'
+        texttemplate='%{text:.0f}'
     ))
     
     # Фактическая выручка
@@ -778,8 +779,8 @@ def plot_monthly_analysis_with_forecast(df, magazin, segment, model, forecast_da
     # Форматирование
     st.dataframe(
         display_table.style.format({
-            '📦 Продажи': '{:,.0f}',
-            '💰 Выручка': '{:,.0f}',
+            '📦 Продажи': '{:.0f}',
+            '💰 Выручка': '{:.0f}',
             '💵 Средняя цена': '{:.2f}',
             '🏷️ Товаров': '{:.0f}',
             '📊 Продаж/товар': '{:.1f}',
@@ -865,7 +866,7 @@ def plot_monthly_analysis_with_forecast(df, magazin, segment, model, forecast_da
     general_recommendations = [
         f"📊 Средняя цена: {monthly_data['Avg_Price'].mean():.2f} ГРН - {'оптимальна' if monthly_data['Avg_Price'].std() < monthly_data['Avg_Price'].mean() * 0.2 else 'сильно варьируется'}",
         f"📦 Оптимальный запас на месяц: {monthly_data['Qty'].mean() * 1.2:.0f} единиц (среднее + 20% буфер)",
-        f"💰 Целевая выручка на следующий месяц: {monthly_data['Sum'].mean() * 1.1:,.0f} ГРН (+10% к среднему)"
+        f"💰 Целевая выручка на следующий месяц: {monthly_data['Sum'].mean() * 1.1:.0f} ГРН (+10% к среднему)"
     ]
     
     for rec in general_recommendations:
@@ -990,7 +991,7 @@ def create_word_report(detailed_forecast, selected_magazin, selected_segment, fo
         metrics_data = [
             ('Общий прогноз', f'{total_forecast:.0f} единиц'),
             ('Средние продажи/день', f'{avg_daily_forecast:.0f} единиц'),
-            ('Прогнозная выручка', f'{forecast_revenue:,.0f} ГРН'),
+            ('Прогнозная выручка', f'{forecast_revenue:.0f} ГРН'),
             ('Уверенность прогноза', f'{confidence_score:.0f}%')
         ]
         
@@ -1062,8 +1063,8 @@ def create_word_report(detailed_forecast, selected_magazin, selected_segment, fo
             ('Показатель', 'Значение'),
             ('Период данных', f"{filtered_df['Datasales'].min().strftime('%Y-%m-%d')} - {filtered_df['Datasales'].max().strftime('%Y-%m-%d')}"),
             ('Всего дней', f'{period_days}'),
-            ('Всего продано', f'{total_sales:,.0f} единиц'),
-            ('Общая выручка', f'{total_revenue:,.0f} ГРН'),
+            ('Всего продано', f'{total_sales:.0f} единиц'),
+            ('Общая выручка', f'{total_revenue:.0f} ГРН'),
             ('Средняя цена', f'{avg_price:.2f} ГРН'),
             ('Средние продажи/день', f'{prophet_data["y"].mean():.1f} единиц'),
             ('Макс. продажи за день', f'{prophet_data["y"].max():.0f} единиц'),
@@ -1337,7 +1338,7 @@ def main():
                     marker_color=colors,
                     text=weekday_stats['Qty'].round(0),
                     textposition='outside',
-                    texttemplate='%{text:,.0f}<br>(%{customdata:.1f}%)',
+                    texttemplate='%{text:.0f}<br>(%{customdata:.1f}%)',
                     customdata=weekday_stats['Qty_Percent'],
                     name='Продажи'
                 ))
@@ -1358,8 +1359,8 @@ def main():
                 best_qty = weekday_stats['Qty'].max()
                 worst_qty = weekday_stats['Qty'].min()
                 
-                st.success(f"🏆 **Лучший день**: {best_day} ({best_qty:,.0f} шт)")
-                st.error(f"📉 **Слабый день**: {worst_day} ({worst_qty:,.0f} шт)")
+                st.success(f"🏆 **Лучший день**: {best_day} ({best_qty:.0f} шт)")
+                st.error(f"📉 **Слабый день**: {worst_day} ({worst_qty:.0f} шт)")
             
             with col2:
                 # График выручки по дням недели
@@ -1374,7 +1375,7 @@ def main():
                     marker_color=colors_revenue,
                     text=weekday_stats['Sum'].round(0),
                     textposition='outside',
-                    texttemplate='%{text:,.0f}',
+                    texttemplate='%{text:.0f}',
                     name='Выручка'
                 ))
                 
@@ -1391,7 +1392,7 @@ def main():
                 best_revenue_day = weekday_stats.loc[weekday_stats['Sum'].idxmax(), 'Weekday_Name_RU']
                 best_revenue = weekday_stats['Sum'].max()
                 
-                st.success(f"💎 **Максимальная выручка**: {best_revenue_day} ({best_revenue:,.0f} ГРН)")
+                st.success(f"💎 **Максимальная выручка**: {best_revenue_day} ({best_revenue:.0f} ГРН)")
             
             # Круговая диаграмма распределения продаж
             st.markdown("### 🥧 Распределение продаж по дням недели")
@@ -1542,7 +1543,7 @@ def main():
                 forecast_revenue = total_forecast * avg_price
                 st.metric(
                     "💰 Прогноз выручки",
-                    f"{forecast_revenue:,.0f} ГРН"
+                    f"{forecast_revenue:.0f} ГРН"
                 )
             
             with col4:
@@ -1588,8 +1589,8 @@ def main():
                 st.markdown("### 📊 Ключевые метрики")
                 st.markdown(f"""
                 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 10px; color: white;">
-                    <p style="font-size: 14px; margin: 5px 0;"><strong>📦 Всего продано:</strong> {total_sales:,.0f} шт</p>
-                    <p style="font-size: 14px; margin: 5px 0;"><strong>💰 Общая выручка:</strong> {total_revenue:,.0f} ГРН</p>
+                    <p style="font-size: 14px; margin: 5px 0;"><strong>📦 Всего продано:</strong> {total_sales:.0f} шт</p>
+                    <p style="font-size: 14px; margin: 5px 0;"><strong>💰 Общая выручка:</strong> {total_revenue:.0f} ГРН</p>
                     <p style="font-size: 14px; margin: 5px 0;"><strong>📈 Среднее/день:</strong> {avg_daily_sales:.1f} шт</p>
                     <p style="font-size: 14px; margin: 5px 0;"><strong>💵 Средняя цена:</strong> {avg_price:.2f} ГРН</p>
                     <p style="font-size: 14px; margin: 5px 0;"><strong>📅 Лучший день:</strong> {best_day_name}</p>
@@ -1603,7 +1604,7 @@ def main():
                 st.markdown(f"""
                 <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 20px; border-radius: 10px; color: white;">
                     <p style="font-size: 14px; margin: 5px 0;"><strong>📊 Прогноз ({forecast_days} дн):</strong> {forecast_total:.0f} шт</p>
-                    <p style="font-size: 14px; margin: 5px 0;"><strong>💰 Прогноз выручки:</strong> {forecast_revenue:,.0f} ГРН</p>
+                    <p style="font-size: 14px; margin: 5px 0;"><strong>💰 Прогноз выручки:</strong> {forecast_revenue:.0f} ГРН</p>
                     <p style="font-size: 14px; margin: 5px 0;"><strong>📈 Изменение:</strong> {forecast_growth:+.1f}%</p>
                     <p style="font-size: 14px; margin: 5px 0;"><strong>🎯 Уверенность:</strong> {confidence_score:.0f}%</p>
                     <p style="font-size: 14px; margin: 5px 0;"><strong>📊 Волатильность:</strong> {daily_volatility*100:.1f}%</p>
@@ -1859,7 +1860,7 @@ def main():
             with col1:
                 st.metric(
                     "💳 Средний чек",
-                    f"{avg_transaction:,.0f} ГРН",
+                    f"{avg_transaction:.0f} ГРН",
                     help="Средняя сумма одной транзакции"
                 )
             
@@ -1913,8 +1914,8 @@ def main():
             
             st.dataframe(
                 abc_summary.style.format({
-                    'Количество позиций': '{:,.0f}',
-                    'Доход (ГРН)': '{:,.0f}',
+                    'Количество позиций': '{:.0f}',
+                    'Доход (ГРН)': '{:.0f}',
                     'Доля от общего дохода %': '{:.2f}%'
                 }).background_gradient(subset=['Доход (ГРН)'], cmap='Greens'),
                 use_container_width=True,
@@ -1936,8 +1937,8 @@ def main():
             
             st.dataframe(
                 top_a_display.style.format({
-                    '📦 Продано': '{:,.0f}',
-                    '💰 Выручка (ГРН)': '{:,.0f}',
+                    '📦 Продано': '{:.0f}',
+                    '💰 Выручка (ГРН)': '{:.0f}',
                     '📊 Доля выручки %': '{:.2f}%'
                 }).background_gradient(subset=['💰 Выручка (ГРН)'], cmap='Greens'),
                 use_container_width=True,
@@ -2018,9 +2019,9 @@ def main():
                         showscale=True,
                         colorbar=dict(title="Выручка<br>ГРН")
                     ),
-                    text=top_20_best['Total_Revenue'].apply(lambda x: f'{x:,.0f}'),
+                    text=top_20_best['Total_Revenue'].apply(lambda x: f'{x:.0f}'),
                     textposition='outside',
-                    hovertemplate='<b>%{y}</b><br>Выручка: %{x:,.0f} ГРН<br><extra></extra>'
+                    hovertemplate='<b>%{y}</b><br>Выручка: %{x:.0f} ГРН<br><extra></extra>'
                 ))
                 
                 fig_best.update_layout(
@@ -2049,8 +2050,8 @@ def main():
                 
                 st.dataframe(
                     display_best.style.format({
-                        '📦 Продано': '{:,.0f}',
-                        '💰 Выручка (ГРН)': '{:,.0f}',
+                        '📦 Продано': '{:.0f}',
+                        '💰 Выручка (ГРН)': '{:.0f}',
                         '💵 Средняя цена': '{:.2f}',
                         '📈 Изменение %': '{:+.1f}%'
                     }).background_gradient(subset=['💰 Выручка (ГРН)'], cmap='Greens')
@@ -2059,7 +2060,7 @@ def main():
                 )
                 
                 # Инсайты
-                st.success(f"💎 **Лидер продаж**: {top_20_best.iloc[0]['Model']} - выручка {top_20_best.iloc[0]['Total_Revenue']:,.0f} ГРН")
+                st.success(f"💎 **Лидер продаж**: {top_20_best.iloc[0]['Model']} - выручка {top_20_best.iloc[0]['Total_Revenue']:.0f} ГРН")
                 
                 growth_products = top_20_best[top_20_best['Change_%'] > 20]
                 if len(growth_products) > 0:
@@ -2120,8 +2121,8 @@ def main():
                 
                 st.dataframe(
                     display_stable.style.format({
-                        '📦 Продано': '{:,.0f}',
-                        '💰 Выручка (ГРН)': '{:,.0f}',
+                        '📦 Продано': '{:.0f}',
+                        '💰 Выручка (ГРН)': '{:.0f}',
                         '💵 Средняя цена': '{:.2f}',
                         '📈 Изменение %': '{:+.1f}%',
                         '📊 Стабильность %': '{:.1f}%'
@@ -2190,10 +2191,10 @@ def main():
                     
                     st.dataframe(
                         display_decline.style.format({
-                            '📦 Всего продано': '{:,.0f}',
-                            '💰 Выручка (ГРН)': '{:,.0f}',
-                            '📊 1-й период': '{:,.0f}',
-                            '📊 2-й период': '{:,.0f}',
+                            '📦 Всего продано': '{:.0f}',
+                            '💰 Выручка (ГРН)': '{:.0f}',
+                            '📊 1-й период': '{:.0f}',
+                            '📊 2-й период': '{:.0f}',
                             '📉 Падение %': '{:.1f}%'
                         }).background_gradient(subset=['📉 Падение %'], cmap='Reds_r'),
                         use_container_width=True
@@ -2311,7 +2312,7 @@ def main():
             # Дополнительные события
             if total_revenue_all > 0:
                 top_product = trend_data.nlargest(1, 'Total_Revenue').iloc[0]
-                events.append(f"🏆 ЛИДЕР: {top_product['Model']} - {top_product['Total_Revenue']:,.0f} ГРН выручки")
+                events.append(f"🏆 ЛИДЕР: {top_product['Model']} - {top_product['Total_Revenue']:.0f} ГРН выручки")
             
             # Отображение выводов
             for conclusion in conclusions:
@@ -2534,9 +2535,9 @@ def main():
                 st.dataframe(
                     display_elasticity.style.format({
                         '📐 Эластичность': '{:.2f}',
-                        '💰 Средняя цена': '{:,.0f} ГРН',
-                        '💵 Выручка': '{:,.0f} ГРН',
-                        '📦 Продано шт.': '{:,.0f}',
+                        '💰 Средняя цена': '{:.0f} ГРН',
+                        '💵 Выручка': '{:.0f} ГРН',
+                        '📦 Продано шт.': '{:.0f}',
                         '📈 Изм. цены %': '{:.1f}%',
                         '📊 Изм. объема %': '{:.1f}%'
                     }).applymap(
